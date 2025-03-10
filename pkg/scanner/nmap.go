@@ -13,9 +13,9 @@ type NmapScanner struct {
 }
 
 // NewNmapScanner creates a new NmapScanner instance
-func NewNmapScanner(ctx context.Context, targets string) (*NmapScanner, error) {
-	scanner, err := nmap.NewScanner(
-		ctx,
+func NewNmapScanner(ctx context.Context, targets string, iface string) (*NmapScanner, error) {
+	var opts []nmap.Option
+	opts = append(opts,
 		nmap.WithTargets(targets),
 		nmap.WithTimingTemplate(nmap.TimingAggressive),
 		nmap.WithOpenOnly(),
@@ -27,6 +27,10 @@ func NewNmapScanner(ctx context.Context, targets string) (*NmapScanner, error) {
 		nmap.WithFastMode(),
 		nmap.WithScripts("vulners", "banner"),
 	)
+	if iface != "" {
+		opts = append(opts, nmap.WithInterface(iface))
+	}
+	scanner, err := nmap.NewScanner(ctx, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Nmap scanner: %w", err)
 	}

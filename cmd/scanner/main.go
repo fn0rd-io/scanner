@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/x509"
+	"encoding/pem"
 	"flag"
 	"log"
 	"os"
@@ -21,6 +23,7 @@ var (
 	workers  = flag.Uint("workers", uint(runtime.NumCPU()*4), "Number of worker goroutines")
 	logfile  = flag.String("logfile", "STDOUT", "Log file path")
 	statedir = flag.String("statedir", "/var/lib/fn0rd", "Directory to store state")
+	iface    = flag.String("iface", "", "Network interface to use for scanning")
 )
 
 func main() {
@@ -48,7 +51,7 @@ func main() {
 }
 
 func setupLogging() {
-	if *logfile != "STDOUT" {
+	if *logfile != "STDOUT" && *logfile != "" {
 		f, err := os.OpenFile(*logfile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 		if err != nil {
 			log.Fatalf("Failed to open log file: %v", err)
@@ -67,34 +70,64 @@ func loadOrCreateIdentity() (ed25519.PrivateKey, error) {
 	// Try to load existing key
 	if _, err := os.Stat(identityPath); err == nil {
 		keyData, err := os.ReadFile(identityPath)
-		if err == nil && len(keyData) == ed25519.PrivateKeySize {
-			log.Printf("Using existing identity from %s", identityPath)
-			return ed25519.PrivateKey(keyData), nil
-		}
-
-		if err != nil {
-			log.Printf("Failed to read identity file: %v", err)
+		if err == nil {
+			// First try to parse as PEM
+			block, _ := pem.Decode(keyData)
+			if block != nil && block.Type == "PRIVATE KEY" {
+				// Parse the PKCS8 private key
+				key, err := x509.ParsePKCS8PrivateKey(block.Bytes)
+				if err == nil {
+					if privKey, ok := key.(ed25519.PrivateKey); ok {
+						log.Printf("Using existing identity from %s (PEM format)", identityPath)
+						return privKey, nil
+					}
+					log.Printf("Identity file contains unsupported key type, generating new key")
+				} else {
+					log.Printf("Failed to parse private key: %v", err)
+				}
+			} else if len(keyData) == ed25519.PrivateKeySize {
+				// Try legacy raw format
+				log.Printf("Using existing identity from %s (legacy format)", identityPath)
+				return ed25519.PrivateKey(keyData), nil
+			} else {
+				log.Printf("Identity file has invalid format, generating new key")
+			}
 		} else {
-			log.Printf("Identity file has invalid format, generating new key")
+			log.Printf("Failed to read identity file: %v", err)
 		}
 	}
 
 	// Generate new key
-	_, newKey, err := ed25519.GenerateKey(rand.Reader)
+	pubKey, privKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		return nil, err
 	}
+	log.Printf("Generated new ED25519 key with public key: %x", pubKey)
+
+	// Convert to PKCS8
+	pkcs8Key, err := x509.MarshalPKCS8PrivateKey(privKey)
+	if err != nil {
+		log.Printf("Failed to marshal private key to PKCS8: %v", err)
+		return privKey, nil
+	}
+
+	// Create PEM block
+	pemBlock := &pem.Block{
+		Type:  "PRIVATE KEY",
+		Bytes: pkcs8Key,
+	}
+	pemData := pem.EncodeToMemory(pemBlock)
 
 	// Save new key to file
 	if err := os.MkdirAll(*statedir, 0700); err != nil {
 		log.Printf("Failed to create state directory: %v", err)
-	} else if err := os.WriteFile(identityPath, newKey, 0600); err != nil {
+	} else if err := os.WriteFile(identityPath, pemData, 0600); err != nil {
 		log.Printf("Failed to save identity file: %v", err)
 	} else {
-		log.Printf("Generated and saved new identity to %s", identityPath)
+		log.Printf("Generated and saved new identity to %s (PEM format)", identityPath)
 	}
 
-	return newKey, nil
+	return privKey, nil
 }
 
 func setupClient(privateKey ed25519.PrivateKey) (*scanner.Client, error) {
@@ -103,6 +136,7 @@ func setupClient(privateKey ed25519.PrivateKey) (*scanner.Client, error) {
 	config.CoordinatorURL = *coordURL
 	config.Workers = uint32(*workers)
 	config.PrivateKey = &privateKey
+	config.Interface = *iface
 
 	// Create and start client
 	client, err := scanner.NewClient(config)

@@ -28,6 +28,8 @@ type Config struct {
 	// Performance tuning
 	Workers        uint32
 	ConnectTimeout time.Duration
+
+	Interface string
 }
 
 // Client manages the connection to the coordinator service

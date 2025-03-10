@@ -242,7 +242,7 @@ func determineCapabilities() []coordinatorv1.Capability {
 	capabilities := []coordinatorv1.Capability{}
 
 	// Check if Nmap scanner is available
-	_, err := NewNmapScanner(context.Background(), "0.0.0.0")
+	_, err := NewNmapScanner(context.Background(), "0.0.0.0", "")
 	if err != nil {
 		log.Printf("Cannot create Nmap scanner: %v", err)
 	} else {
@@ -388,7 +388,7 @@ func (c *Client) processTask(id uint32, task *coordinatorv1.TargetResponse) {
 
 // runScan executes an Nmap scan against the target
 func (c *Client) runScan(ctx context.Context, id uint32, target []byte) ([]byte, error) {
-	n, err := NewNmapScanner(ctx, net.IP(target).String())
+	n, err := NewNmapScanner(ctx, net.IP(target).String(), c.config.Interface)
 	if err != nil {
 		log.Printf("Worker %d: failed to create Nmap scanner: %v", id, err)
 		return nil, fmt.Errorf("scanner initialization failed: %w", err)
