@@ -15,7 +15,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/fn0rd-io/scanner/pkg/scanner"
+	"github.com/fn0rd-io/scanner/pkg/client"
 )
 
 var (
@@ -26,12 +26,16 @@ var (
 	iface    = flag.String("iface", "", "Network interface to use for scanning")
 )
 
-func main() {
+func init() {
 	flag.Parse()
-
-	// Configure logging
 	setupLogging()
+	if *workers == 0 {
+		*workers = uint(runtime.NumCPU() * 4)
+		log.Printf("Using default worker count: %d", *workers)
+	}
+}
 
+func main() {
 	// Load or create identity key
 	privateKey, err := loadOrCreateIdentity()
 	if err != nil {
@@ -130,16 +134,16 @@ func loadOrCreateIdentity() (ed25519.PrivateKey, error) {
 	return privKey, nil
 }
 
-func setupClient(privateKey ed25519.PrivateKey) (*scanner.Client, error) {
+func setupClient(privateKey ed25519.PrivateKey) (*client.Client, error) {
 	// Configure client
-	config := scanner.DefaultConfig()
+	config := client.DefaultConfig()
 	config.CoordinatorURL = *coordURL
 	config.Workers = uint32(*workers)
 	config.PrivateKey = &privateKey
 	config.Interface = *iface
 
 	// Create and start client
-	client, err := scanner.NewClient(config)
+	client, err := client.NewClient(config)
 	if err != nil {
 		return nil, err
 	}
@@ -151,7 +155,7 @@ func setupClient(privateKey ed25519.PrivateKey) (*scanner.Client, error) {
 	return client, nil
 }
 
-func waitForShutdown(client *scanner.Client) {
+func waitForShutdown(client *client.Client) {
 	// Set up signal handling
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)

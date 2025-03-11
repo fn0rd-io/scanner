@@ -1,4 +1,4 @@
-package scanner
+package nmap
 
 import (
 	"context"
@@ -21,10 +21,11 @@ func NewNmapScanner(ctx context.Context, targets string, iface string) (*NmapSca
 		nmap.WithOpenOnly(),
 		nmap.WithReason(),
 		nmap.WithServiceInfo(),
+		nmap.WithUDPScan(),
 		nmap.WithConnectScan(),
 		nmap.WithSkipHostDiscovery(),
 		nmap.WithSystemDNS(),
-		nmap.WithFastMode(),
+		nmap.WithPorts(portsToString(CommonPorts)),
 		nmap.WithScripts("vulners", "banner"),
 	)
 	if iface != "" {

@@ -1,4 +1,4 @@
-package scanner
+package client
 
 import (
 	"context"
@@ -41,6 +41,7 @@ type Client struct {
 	cancel  context.CancelFunc
 	stream  *connect.BidiStreamForClient[coordinatorv1.StreamRequest, coordinatorv1.StreamResponse]
 	stateMu sync.Mutex // Protects stream and registered flags
+	attempt uint8
 
 	// Task management
 	taskCh        chan *coordinatorv1.TargetResponse

@@ -1,4 +1,4 @@
-package scanner
+package client
 
 import (
 	"context"
@@ -20,6 +20,7 @@ import (
 	"connectrpc.com/connect"
 	coordinatorv1 "github.com/fn0rd-io/protobuf/coordinator/v1"
 	"github.com/fn0rd-io/protobuf/coordinator/v1/coordinatorconnect"
+	"github.com/fn0rd-io/scanner/pkg/nmap"
 )
 
 // Error constants
@@ -97,19 +98,13 @@ func (c *Client) connectionManager() {
 		connect.WithGRPC(),
 	)
 
-	// Define backoff parameters
-	baseBackoff := 1 * time.Second
-	maxBackoff := 60 * time.Second
-	backoff := baseBackoff
-	attempt := 0
-
 	for {
 		select {
 		case <-c.ctx.Done():
 			return
 		default:
 			// Try to establish and maintain connection
-			if err := c.establishConnection(client, &attempt, &backoff, maxBackoff, baseBackoff); err != nil {
+			if err := c.establishConnection(client); err != nil {
 				if errors.Is(err, context.Canceled) {
 					return // Client is shutting down
 				}
@@ -120,13 +115,7 @@ func (c *Client) connectionManager() {
 }
 
 // establishConnection attempts to connect to the coordinator with backoff on failure
-func (c *Client) establishConnection(
-	client coordinatorconnect.CoordinatorServiceClient,
-	attempt *int,
-	backoff *time.Duration,
-	maxBackoff time.Duration,
-	baseBackoff time.Duration,
-) error {
+func (c *Client) establishConnection(client coordinatorconnect.CoordinatorServiceClient) error {
 	// Create stream and update client state
 	stream := client.Stream(c.ctx)
 
@@ -137,42 +126,21 @@ func (c *Client) establishConnection(
 
 	// Attempt registration
 	if err := c.register(); err != nil {
-		*attempt++
-
-		// Calculate backoff with exponential increase and jitter
-		nextBackoff := calculateBackoff(baseBackoff, *attempt, maxBackoff)
-
-		log.Printf("Registration failed: %v, retrying in %v (attempt %d)",
-			err, nextBackoff.Round(time.Millisecond), *attempt)
-
-		select {
-		case <-time.After(nextBackoff):
-			return err // Will retry in the calling function
-		case <-c.ctx.Done():
-			return context.Canceled
-		}
+		log.Printf("Registration failed: %v", err)
+		return err
 	}
-
-	// Successfully connected and registered
-	log.Printf("Successfully connected and registered with %d workers", c.config.Workers)
-
-	// Reset backoff after successful connection
-	*backoff = baseBackoff
-	*attempt = 0
 
 	// Wait for reconnect signal or context cancellation
 	select {
 	case <-c.reconnectCh:
-		log.Printf("Reconnection requested, reconnecting...")
+		return nil
 	case <-c.ctx.Done():
 		return context.Canceled
 	}
-
-	return nil
 }
 
 // calculateBackoff determines the next backoff period with jitter
-func calculateBackoff(base time.Duration, attempt int, max time.Duration) time.Duration {
+func calculateBackoff(base time.Duration, attempt uint8, max time.Duration) time.Duration {
 	backoff := time.Duration(float64(base) * math.Pow(1.5, float64(attempt)))
 	if backoff > max {
 		backoff = max
@@ -180,6 +148,8 @@ func calculateBackoff(base time.Duration, attempt int, max time.Duration) time.D
 
 	// Add jitter (±20%)
 	jitter := time.Duration(mrand.Float64()*0.4*float64(backoff) - 0.2*float64(backoff))
+
+	log.Printf("Calculated backoff: %v + %v", backoff, jitter)
 	return backoff + jitter
 }
 
@@ -232,7 +202,7 @@ func (c *Client) register() error {
 		return fmt.Errorf("failed to send registration: %w", err)
 	}
 
-	log.Printf("Registration sent successfully")
+	log.Printf("Registration with %d workers sent successfully", c.config.Workers)
 	c.registered = true
 	return nil
 }
@@ -242,7 +212,7 @@ func determineCapabilities() []coordinatorv1.Capability {
 	capabilities := []coordinatorv1.Capability{}
 
 	// Check if Nmap scanner is available
-	_, err := NewNmapScanner(context.Background(), "0.0.0.0", "")
+	_, err := nmap.NewNmapScanner(context.Background(), "0.0.0.0", "")
 	if err != nil {
 		log.Printf("Cannot create Nmap scanner: %v", err)
 	} else {
@@ -278,6 +248,8 @@ func (c *Client) signRequest(req *coordinatorv1.StreamRequest, nonce []byte, wor
 
 // receiveMessages handles incoming messages from the coordinator
 func (c *Client) receiveMessages() {
+	baseBackoff := 1 * time.Second
+	maxBackoff := 60 * time.Second
 	for {
 		select {
 		case <-c.ctx.Done():
@@ -288,8 +260,9 @@ func (c *Client) receiveMessages() {
 					return
 				}
 				// Connection error, trigger reconnect
+				c.attempt++
+				time.Sleep(calculateBackoff(baseBackoff, c.attempt, maxBackoff)) // Avoid tight loop
 				c.triggerReconnect()
-				time.Sleep(500 * time.Millisecond) // Avoid tight loop
 			}
 		}
 	}
@@ -313,6 +286,10 @@ func (c *Client) tryReceiveMessage() error {
 		return err
 	}
 
+	if c.attempt > 0 {
+		c.attempt = 0
+	}
+
 	// Process the response
 	switch {
 	case resp.GetTarget() != nil:
@@ -327,12 +304,14 @@ func (c *Client) tryReceiveMessage() error {
 
 // triggerReconnect signals that a reconnection is needed
 func (c *Client) triggerReconnect() {
+	c.registered = false
 	select {
 	case c.reconnectCh <- struct{}{}:
 		// Signal sent successfully
 	default:
 		// Channel is full (reconnection already triggered)
 	}
+	log.Printf("Reconnection requested, reconnecting...")
 }
 
 // worker processes tasks received from the coordinator
@@ -388,7 +367,7 @@ func (c *Client) processTask(id uint32, task *coordinatorv1.TargetResponse) {
 
 // runScan executes an Nmap scan against the target
 func (c *Client) runScan(ctx context.Context, id uint32, target []byte) ([]byte, error) {
-	n, err := NewNmapScanner(ctx, net.IP(target).String(), c.config.Interface)
+	n, err := nmap.NewNmapScanner(ctx, net.IP(target).String(), c.config.Interface)
 	if err != nil {
 		log.Printf("Worker %d: failed to create Nmap scanner: %v", id, err)
 		return nil, fmt.Errorf("scanner initialization failed: %w", err)
