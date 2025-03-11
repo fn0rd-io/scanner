@@ -35,6 +35,8 @@ var CommonPorts = []NamedPort{
 	{443, "HTTPS", TCP},
 	{989, "FTPS-Data", TCP},
 	{990, "FTPS-Control", TCP},
+	{992, "Telnet-over-TLS", TCP},
+	{992, "Telnet-over-TLS", UDP},
 	{8080, "HTTP-Proxy", TCP},
 	{8443, "HTTPS-Alt", TCP},
 
@@ -42,8 +44,11 @@ var CommonPorts = []NamedPort{
 	{109, "POP2", TCP},
 	{110, "POP3", TCP},
 	{143, "IMAP", TCP},
+	{209, "QMTP", TCP},
+	{220, "IMAP3", TCP},
 	{465, "SMTP-SSL", TCP},
 	{587, "SMTP-Submission", TCP},
+	{691, "Microsoft-Exchange", TCP},
 	{993, "IMAPS", TCP},
 	{995, "POP3S", TCP},
 	{2525, "SMTP-Alt1", TCP},
@@ -58,6 +63,10 @@ var CommonPorts = []NamedPort{
 	{139, "NetBIOS-Session", TCP},
 	{546, "DHCPv6-Client", UDP},
 	{547, "DHCPv6-Server", UDP},
+	{647, "DHCP-failover", TCP},
+	{847, "DHCP-failover", TCP},
+	{853, "DNS-over-TLS", TCP},
+	{853, "DNS-over-QUIC", UDP},
 	{953, "DNS-RNDC", TCP},
 
 	// Remote Access & Management
@@ -65,14 +74,18 @@ var CommonPorts = []NamedPort{
 	{464, "Kerberos-Password", TCP},
 	{513, "Rlogin", TCP},
 	{514, "Cmd/Rsh", TCP},
+	{514, "Syslog", UDP},
+	{544, "Kerberos-Remote-Shell/Kshell", TCP},
 	{749, "Kerberos-Admin", TCP},
 	{1494, "Citrix-ICA", TCP},
 	{1723, "PPTP", TCP},
 	{3389, "RDP", TCP},
+	{3389, "RDP", UDP},
 	{5500, "VNC-Server", TCP},
 	{5800, "VNC-HTTP", TCP},
 	{5900, "VNC", TCP},
 	{5938, "TeamViewer", TCP},
+	{6514, "Syslog", TCP},
 
 	// File Sharing & Transfer
 	{69, "TFTP", UDP},
@@ -84,7 +97,9 @@ var CommonPorts = []NamedPort{
 	{2049, "NFS", UDP},
 
 	// Directory & Authentication Services
+	{88, "Kerberos", UDP},
 	{389, "LDAP", TCP},
+	{543, "Kerberos-login/Klogin", TCP},
 	{636, "LDAPS", TCP},
 	{1812, "RADIUS-Auth", UDP},
 	{1813, "RADIUS-Accounting", UDP},
@@ -101,7 +116,7 @@ var CommonPorts = []NamedPort{
 	{5984, "CouchDB", TCP},
 	{6379, "Redis", TCP},
 	{6380, "Redis-Alt", TCP},
-	{7000, "Cassandra", TCP},
+	{7000, "Cassandra/PeerVPN", TCP},
 	{7473, "Neo4j-HTTP", TCP},
 	{8086, "InfluxDB", TCP},
 	{9042, "Cassandra-CQL", TCP},
@@ -115,6 +130,7 @@ var CommonPorts = []NamedPort{
 
 	// Messaging & Communication
 	{119, "NNTP", TCP},
+	{194, "IRC", TCP},
 	{563, "NNTP-TLS", TCP},
 	{631, "IPP", TCP},
 	{1503, "Windows-Messenger", TCP},
@@ -125,11 +141,22 @@ var CommonPorts = []NamedPort{
 	{5222, "XMPP-Client", TCP},
 	{5223, "XMPP-Client-SSL", TCP},
 	{5269, "XMPP-Server", TCP},
+	{6660, "IRC", TCP},
+	{6661, "IRC", TCP},
+	{6662, "IRC", TCP},
+	{6663, "IRC", TCP},
+	{6664, "IRC", TCP},
+	{6665, "IRC", TCP},
 	{6666, "IRC", TCP},
 	{6667, "IRC", TCP},
+	{6668, "IRC", TCP},
+	{6669, "IRC", TCP},
 	{6697, "IRC-SSL", TCP},
+	{7000, "IRC", TCP},
 
 	// Network Services
+	{37, "Time-Protocol", TCP},
+	{37, "Time-Protocol", UDP},
 	{79, "Finger", TCP},
 	{111, "RPC", TCP},
 	{111, "RPC", UDP},
@@ -142,6 +169,9 @@ var CommonPorts = []NamedPort{
 	{514, "Syslog", UDP},
 	{515, "Printer-LPD", TCP},
 	{554, "RTSP", TCP},
+	{601, "Syslog", TCP},
+	{655, "Tinc", TCP},
+	{655, "Tinc", UDP},
 	{1080, "SOCKS-Proxy", TCP},
 	{1194, "OpenVPN", UDP},
 	{1701, "L2TP", UDP},
@@ -202,6 +232,8 @@ var CommonPorts = []NamedPort{
 	// Specialized Services
 	{1880, "Node-RED", TCP},
 	{1883, "MQTT", TCP},
+	{3478, "Headscale", UDP},
+	{4242, "Nebula", UDP},
 	{4444, "Metasploit", TCP},
 	{5672, "RabbitMQ", TCP},
 	{5986, "WinRM-HTTPS", TCP},
@@ -214,9 +246,12 @@ var CommonPorts = []NamedPort{
 	{8883, "MQTT-TLS", TCP},
 	{8983, "Solr", TCP},
 	{9001, "Tor-Orport", TCP},
+	{9030, "Tor-Dirport", TCP},
+	{9035, "Tor-MetricsPort", TCP},
 	{9091, "Transmission", TCP},
 	{9993, "ZeroTier", UDP},
 	{15672, "RabbitMQ-Admin", TCP},
+	{41641, "Tailscale/Headscale", UDP},
 
 	// Application & Media Services
 	{1935, "RTMP", TCP},
@@ -238,7 +273,8 @@ var CommonPorts = []NamedPort{
 	{7171, "Tibia", TCP},
 	{7777, "GameServer-Generic", TCP},
 	{25565, "Minecraft", TCP},
-	{27015, "Source-Engine", TCP},
+	{27015, "Steam", TCP},
+	{27015, "Steam", UDP},
 	{27016, "Source-RCON", TCP},
 	{28960, "Call-of-Duty", TCP},
 
@@ -264,6 +300,7 @@ var CommonPorts = []NamedPort{
 	{10051, "Zabbix-Server", TCP},
 
 	// Storage Services
+	{860, "iSCSI", TCP},
 	{3260, "iSCSI", TCP},
 	{9000, "S3-API", TCP},
 	{3300, "Ceph-Mon", TCP},     // Ceph Monitor (newer versions)
@@ -299,6 +336,10 @@ var CommonPorts = []NamedPort{
 	{3299, "SAP", TCP},        // SAP services
 	{8000, "SAP-WebGUI", TCP}, // SAP Web interface
 	{9080, "WebSphere", TCP},  // IBM WebSphere Application Server
+
+	// Registrar/Registries Communication
+	{648, "RRP", TCP},
+	{700, "EPP", TCP},
 }
 
 // portsToString converts a slice of NamedPort to a comma-separated string of port numbers
