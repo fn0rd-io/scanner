@@ -54,12 +54,16 @@ func NewClient(config Config) (*Client, error) {
 		stateMu:     sync.Mutex{},
 	}
 
+	totalWorkers.Set(float64(config.Workers))
+
 	return client, nil
 }
 
 // Start begins the client's operation by connecting to the coordinator
 // and starting worker goroutines
 func (c *Client) Start() error {
+	go c.InitMetrics()
+
 	// Start the workers
 	c.startWorkers()
 
@@ -154,6 +158,7 @@ func (c *Client) establishConnection(client coordinatorconnect.CoordinatorServic
 						},
 					}); err != nil {
 					log.Printf("Failed to send ping: %v", err)
+					streamErrors.Inc()
 				}
 			}
 			c.stateMu.Unlock()
@@ -315,6 +320,7 @@ func (c *Client) tryReceiveMessage() error {
 	resp, err := stream.Receive()
 	if err != nil {
 		log.Printf("Error receiving message: %v", err)
+		streamErrors.Inc()
 		return err
 	}
 
@@ -327,6 +333,7 @@ func (c *Client) tryReceiveMessage() error {
 	case resp.GetTarget() != nil:
 		target := resp.GetTarget()
 		c.taskCh <- target
+		tasksAssigned.Inc()
 	case resp.GetPing() != nil:
 		// No need to do anything for pings
 	default:
@@ -431,11 +438,13 @@ func (c *Client) sendResults() {
 		case result := <-c.resultCh:
 			if result.Error != nil {
 				log.Printf("Task error: %v", result.Error)
+				tasksFailed.Inc()
 			}
 
 			// Only send results that have data
 			if len(result.Data) > 0 {
 				c.submitResult(result)
+				tasksCompleted.Inc()
 			}
 		}
 	}
@@ -483,5 +492,6 @@ func (c *Client) submitResult(result Result) {
 	// Send result
 	if err := c.stream.Send(req); err != nil {
 		log.Printf("Failed to send result: %v", err)
+		streamErrors.Inc()
 	}
 }

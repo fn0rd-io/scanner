@@ -29,8 +29,9 @@ type Config struct {
 	Workers        uint32
 	ConnectTimeout time.Duration
 
-	Interface string
-	UDP       bool
+	Interface   string
+	UDP         bool
+	MetricsPort string
 }
 
 // Client manages the connection to the coordinator service
