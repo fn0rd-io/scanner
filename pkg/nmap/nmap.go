@@ -13,7 +13,7 @@ type NmapScanner struct {
 }
 
 // NewNmapScanner creates a new NmapScanner instance
-func NewNmapScanner(ctx context.Context, targets string, iface string) (*NmapScanner, error) {
+func NewNmapScanner(ctx context.Context, targets string, iface string, udp bool) (*NmapScanner, error) {
 	var opts []nmap.Option
 	opts = append(opts,
 		nmap.WithTargets(targets),
@@ -21,15 +21,17 @@ func NewNmapScanner(ctx context.Context, targets string, iface string) (*NmapSca
 		nmap.WithOpenOnly(),
 		nmap.WithReason(),
 		nmap.WithServiceInfo(),
-		nmap.WithUDPScan(),
 		nmap.WithConnectScan(),
 		nmap.WithSkipHostDiscovery(),
 		nmap.WithSystemDNS(),
-		nmap.WithPorts(portsToString(CommonPorts)),
+		nmap.WithPorts(portsToString(CommonPorts, udp)),
 		nmap.WithScripts("vulners", "banner"),
 	)
 	if iface != "" {
 		opts = append(opts, nmap.WithInterface(iface))
+	}
+	if udp {
+		opts = append(opts, nmap.WithUDPScan())
 	}
 	scanner, err := nmap.NewScanner(ctx, opts...)
 	if err != nil {

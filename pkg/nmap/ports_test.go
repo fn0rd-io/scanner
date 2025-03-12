@@ -44,7 +44,7 @@ func TestPortsToString(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := portsToString(tt.ports)
+			result := portsToString(tt.ports, true)
 			if result != tt.expected {
 				t.Errorf("portsToString() = %v, want %v", result, tt.expected)
 			}

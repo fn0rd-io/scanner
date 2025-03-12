@@ -352,22 +352,22 @@ var CommonPorts = []NamedPort{
 	// Registrar/Registries Communication
 	{648, "RRP", TCP},
 	{700, "EPP", TCP},
-  
- 	// Enterprise Applications
+
+	// Enterprise Applications
 	{3299, "SAP", TCP},       // SAP services
 	{9080, "WebSphere", TCP}, // IBM WebSphere Application Server
 }
 
 // portsToString converts a slice of NamedPort to a comma-separated string of port numbers
 // with protocol prefixes (t: for TCP, u: for UDP)
-func portsToString(ports []NamedPort) string {
+func portsToString(ports []NamedPort, udp bool) string {
 	tcpPorts := make([]string, 0)
 	udpPorts := make([]string, 0)
 
 	for _, port := range ports {
 		if port.Protocol == TCP {
 			tcpPorts = append(tcpPorts, fmt.Sprintf("%d", port.Port))
-		} else if port.Protocol == UDP {
+		} else if port.Protocol == UDP && udp {
 			udpPorts = append(udpPorts, fmt.Sprintf("%d", port.Port))
 		}
 	}

@@ -30,6 +30,7 @@ type Config struct {
 	ConnectTimeout time.Duration
 
 	Interface string
+	UDP       bool
 }
 
 // Client manages the connection to the coordinator service

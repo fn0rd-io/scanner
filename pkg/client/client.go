@@ -171,7 +171,7 @@ func (c *Client) register() error {
 	}
 
 	// Determine capabilities
-	capabilities := determineCapabilities()
+	capabilities := c.determineCapabilities()
 
 	// Create registration request
 	req := &coordinatorv1.StreamRequest{
@@ -208,15 +208,21 @@ func (c *Client) register() error {
 }
 
 // determineCapabilities checks what capabilities this scanner supports
-func determineCapabilities() []coordinatorv1.Capability {
+func (c *Client) determineCapabilities() []coordinatorv1.Capability {
 	capabilities := []coordinatorv1.Capability{}
 
 	// Check if Nmap scanner is available
-	_, err := nmap.NewNmapScanner(context.Background(), "0.0.0.0", "")
+	n, err := nmap.NewNmapScanner(context.Background(), "127.0.0.1", "", true)
 	if err != nil {
 		log.Printf("Cannot create Nmap scanner: %v", err)
 	} else {
-		capabilities = append(capabilities, coordinatorv1.Capability_CAPABILITY_NMAP_FULL)
+		capabilities = append(capabilities, coordinatorv1.Capability_CAPABILITY_NMAP)
+		if _, err := n.Run(); err == nil {
+			c.config.UDP = true
+			capabilities = append(capabilities, coordinatorv1.Capability_CAPABILITY_NMAP_FULL)
+		} else {
+			log.Printf("Limiting Capabilities to TCP-Only: %v", err)
+		}
 	}
 
 	return capabilities
@@ -367,7 +373,7 @@ func (c *Client) processTask(id uint32, task *coordinatorv1.TargetResponse) {
 
 // runScan executes an Nmap scan against the target
 func (c *Client) runScan(ctx context.Context, id uint32, target []byte) ([]byte, error) {
-	n, err := nmap.NewNmapScanner(ctx, net.IP(target).String(), c.config.Interface)
+	n, err := nmap.NewNmapScanner(ctx, net.IP(target).String(), c.config.Interface, c.config.UDP)
 	if err != nil {
 		log.Printf("Worker %d: failed to create Nmap scanner: %v", id, err)
 		return nil, fmt.Errorf("scanner initialization failed: %w", err)
