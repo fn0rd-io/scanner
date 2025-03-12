@@ -24,7 +24,7 @@ var (
 	logfile  = flag.String("logfile", "STDOUT", "Log file path")
 	statedir = flag.String("statedir", "/var/lib/fn0rd", "Directory to store state")
 	iface    = flag.String("iface", "", "Network interface to use for scanning")
-	metrics  = flag.String("metrics", ":0", "Address to serve Prometheus metrics on")
+	metrics  = flag.String("metrics", "127.0.0.1:0", "Address to serve Prometheus metrics on")
 )
 
 func init() {

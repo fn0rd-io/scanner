@@ -33,6 +33,10 @@ var (
 )
 
 func (c *Client) InitMetrics() {
+	if c.config.MetricsPort == "off" {
+		log.Println("Metrics disabled")
+		return
+	}
 	http.Handle("/metrics", promhttp.Handler())
 	go http.ListenAndServe(c.config.MetricsPort, nil)
 	log.Printf("Serving metrics on %s", c.config.MetricsPort)
