@@ -95,6 +95,10 @@ var CommonPorts = []NamedPort{
 	{873, "Rsync", TCP},
 	{2049, "NFS", TCP},
 	{2049, "NFS", UDP},
+	{8384, "Syncthing-WebUI", TCP},      // Syncthing web interface
+	{22000, "Syncthing-Relay", TCP},     // Syncthing file transfer
+	{22000, "Syncthing-Relay", UDP},     // Syncthing protocol discovery
+	{21027, "Syncthing-Discovery", UDP}, // Syncthing local discovery
 
 	// Directory & Authentication Services
 	{88, "Kerberos", UDP},
@@ -103,6 +107,7 @@ var CommonPorts = []NamedPort{
 	{636, "LDAPS", TCP},
 	{1812, "RADIUS-Auth", UDP},
 	{1813, "RADIUS-Accounting", UDP},
+	{11371, "OpenPGP-HKP", TCP}, // OpenPGP HTTP Keyserver Protocol
 
 	// Database Services
 	{1433, "MS-SQL", TCP},
@@ -205,7 +210,6 @@ var CommonPorts = []NamedPort{
 	{3003, "Express", TCP},
 	{3690, "SVN", TCP},
 	{4200, "Angular", TCP},
-	{5000, "Flask", TCP},
 	{5173, "Vite", TCP},
 	{8787, "RStudio", TCP},
 	{9418, "Git", TCP},
@@ -228,6 +232,17 @@ var CommonPorts = []NamedPort{
 	{9090, "Prometheus", TCP},
 	{9092, "Kafka", TCP},
 	{10250, "Kubernetes-Kubelet", TCP},
+
+	// OpenStack services
+	{5000, "OpenStack-Keystone/Flask", TCP}, // OpenStack Identity API
+	{8774, "OpenStack-Nova", TCP},           // OpenStack Compute API
+	{9292, "OpenStack-Glance", TCP},         // OpenStack Image Service
+	{9696, "OpenStack-Neutron", TCP},        // OpenStack Networking
+	{8776, "OpenStack-Cinder", TCP},         // OpenStack Block Storage
+	{8004, "OpenStack-Heat", TCP},           // OpenStack Orchestration
+	{8778, "OpenStack-Placement", TCP},      // OpenStack Placement API
+	{6385, "OpenStack-Ironic", TCP},         // OpenStack Bare Metal Service
+	{35357, "OpenStack-KeystoneAdmin", TCP}, // OpenStack Identity Admin API
 
 	// Specialized Services
 	{1880, "Node-RED", TCP},
@@ -264,7 +279,9 @@ var CommonPorts = []NamedPort{
 	{8005, "Tomcat-Shutdown", TCP},
 	{8009, "AJP", TCP},
 	{8096, "Jellyfin", TCP},
-	{32400, "Plex", TCP},
+	{32400, "Plex", TCP},           // Primary Plex web interface and streaming
+	{32410, "Plex-Companion", UDP}, // Plex Companion discovery
+	{32469, "Plex-DLNA", TCP},      // Plex DLNA streaming
 
 	// Game Servers
 	{3074, "Xbox-Live", TCP},
@@ -272,6 +289,9 @@ var CommonPorts = []NamedPort{
 	{6112, "Battle.net", TCP},
 	{7171, "Tibia", TCP},
 	{7777, "GameServer-Generic", TCP},
+	{9987, "TeamSpeak-Voice", UDP},         // TeamSpeak 3 default voice port
+	{10011, "TeamSpeak-ServerQuery", TCP},  // TeamSpeak server query port
+	{30033, "TeamSpeak-FileTransfer", TCP}, // TeamSpeak file transfer port
 	{25565, "Minecraft", TCP},
 	{27015, "Steam", TCP},
 	{27015, "Steam", UDP},
@@ -302,7 +322,6 @@ var CommonPorts = []NamedPort{
 	// Storage Services
 	{860, "iSCSI", TCP},
 	{3260, "iSCSI", TCP},
-	{9000, "S3-API", TCP},
 	{3300, "Ceph-Mon", TCP},     // Ceph Monitor (newer versions)
 	{6789, "Ceph-Mon-V2", TCP},  // Ceph Monitor (older versions)
 	{7480, "Ceph-RGW", TCP},     // Ceph Object Gateway (HTTP)
@@ -332,14 +351,13 @@ var CommonPorts = []NamedPort{
 	{50075, "Hadoop-DataNode", TCP},       // Hadoop DataNode WebUI
 	{8088, "Hadoop-ResourceManager", TCP}, // YARN Resource Manager
 
-	// Enterprise Applications
-	{3299, "SAP", TCP},        // SAP services
-	{8000, "SAP-WebGUI", TCP}, // SAP Web interface
-	{9080, "WebSphere", TCP},  // IBM WebSphere Application Server
-
 	// Registrar/Registries Communication
 	{648, "RRP", TCP},
 	{700, "EPP", TCP},
+  
+ 	// Enterprise Applications
+	{3299, "SAP", TCP},       // SAP services
+	{9080, "WebSphere", TCP}, // IBM WebSphere Application Server
 }
 
 // portsToString converts a slice of NamedPort to a comma-separated string of port numbers
