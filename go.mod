@@ -5,7 +5,7 @@ go 1.23.4
 require (
 	connectrpc.com/connect v1.18.1
 	github.com/Ullaakut/nmap/v3 v3.0.5
-	github.com/fn0rd-io/protobuf v0.0.1
+	github.com/fn0rd-io/protobuf v0.0.2
 	github.com/stretchr/testify v1.8.2
 )
 

@@ -5,8 +5,8 @@ github.com/Ullaakut/nmap/v3 v3.0.5/go.mod h1:dd5K68P7LHc5nKrFwQx6EdTt61O9UN5x3zn
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
-github.com/fn0rd-io/protobuf v0.0.1 h1:+Rk3rbpD5W/ZCcsuN+kljVaI1xMDrRxcmCofJUads0M=
-github.com/fn0rd-io/protobuf v0.0.1/go.mod h1:CjD1pYhNwOgWhqBO1S8hUf9A0PMavF73DbWXd6cWLVc=
+github.com/fn0rd-io/protobuf v0.0.2 h1:c3da1rUX1SJ8HR6CocOuT9fhPhnpkwE8S4F7sLxYHoI=
+github.com/fn0rd-io/protobuf v0.0.2/go.mod h1:CjD1pYhNwOgWhqBO1S8hUf9A0PMavF73DbWXd6cWLVc=
 github.com/google/go-cmp v0.5.9 h1:O2Tfq5qg4qc4AmwVlvv0oLiVAGB7enBSJ2x2DqQFi38=
 github.com/google/go-cmp v0.5.9/go.mod h1:17dUlkBOakJ0+DkrSSNjCkIjxS6bF9zb3elmeNGIjoY=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=

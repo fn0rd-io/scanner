@@ -130,12 +130,38 @@ func (c *Client) establishConnection(client coordinatorconnect.CoordinatorServic
 		return err
 	}
 
+	pingTimer := time.NewTicker(5 * time.Second)
+	defer pingTimer.Stop()
+
 	// Wait for reconnect signal or context cancellation
-	select {
-	case <-c.reconnectCh:
-		return nil
-	case <-c.ctx.Done():
-		return context.Canceled
+	for {
+		select {
+		case <-pingTimer.C:
+			// Send ping to coordinator
+			c.stateMu.Lock()
+			if c.stream != nil {
+				// Generate nonce
+				nonce, err := generateNonce(16)
+				if err != nil {
+					return fmt.Errorf("failed to generate nonce: %w", err)
+				}
+
+				if err :=
+					c.stream.Send(&coordinatorv1.StreamRequest{
+						Nonce: nonce,
+						Request: &coordinatorv1.StreamRequest_Ping{
+							Ping: &coordinatorv1.PingRequest{},
+						},
+					}); err != nil {
+					log.Printf("Failed to send ping: %v", err)
+				}
+			}
+			c.stateMu.Unlock()
+		case <-c.reconnectCh:
+			return nil
+		case <-c.ctx.Done():
+			return context.Canceled
+		}
 	}
 }
 
@@ -301,6 +327,8 @@ func (c *Client) tryReceiveMessage() error {
 	case resp.GetTarget() != nil:
 		target := resp.GetTarget()
 		c.taskCh <- target
+	case resp.GetPing() != nil:
+		// No need to do anything for pings
 	default:
 		log.Printf("Received unknown response type")
 	}
