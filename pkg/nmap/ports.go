@@ -121,7 +121,7 @@ var CommonPorts = []NamedPort{
 	{5984, "CouchDB", TCP},
 	{6379, "Redis", TCP},
 	{6380, "Redis-Alt", TCP},
-	{7000, "Cassandra/PeerVPN", TCP},
+	{7000, "Cassandra/PeerVPN/IRC", TCP},
 	{7473, "Neo4j-HTTP", TCP},
 	{8086, "InfluxDB", TCP},
 	{9042, "Cassandra-CQL", TCP},
@@ -157,7 +157,6 @@ var CommonPorts = []NamedPort{
 	{6668, "IRC", TCP},
 	{6669, "IRC", TCP},
 	{6697, "IRC-SSL", TCP},
-	{7000, "IRC", TCP},
 
 	// Network Services
 	{37, "Time-Protocol", TCP},
@@ -171,7 +170,6 @@ var CommonPorts = []NamedPort{
 	{162, "SNMP-Trap", UDP},
 	{179, "BGP", TCP},
 	{500, "IKE", UDP},
-	{514, "Syslog", UDP},
 	{515, "Printer-LPD", TCP},
 	{554, "RTSP", TCP},
 	{601, "Syslog", TCP},
