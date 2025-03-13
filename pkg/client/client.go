@@ -23,6 +23,12 @@ import (
 	"github.com/fn0rd-io/scanner/pkg/nmap"
 )
 
+const (
+	baseBackoff       = 1 * time.Second
+	maxBackoff        = 60 * time.Second
+	reconnectWaitTime = 1 * time.Second
+)
+
 // Error constants
 var (
 	ErrNoWorkers        = errors.New("must specify at least one worker")
@@ -62,7 +68,7 @@ func NewClient(config Config) (*Client, error) {
 // Start begins the client's operation by connecting to the coordinator
 // and starting worker goroutines
 func (c *Client) Start() error {
-	go c.InitMetrics()
+	c.InitMetrics()
 
 	// Start the workers
 	c.startWorkers()
@@ -71,6 +77,9 @@ func (c *Client) Start() error {
 	go c.connectionManager()
 	go c.receiveMessages()
 	go c.sendResults()
+
+	// Trigger initial connection
+	c.reconnectCh <- struct{}{}
 
 	return nil
 }
@@ -102,72 +111,51 @@ func (c *Client) connectionManager() {
 		connect.WithGRPC(),
 	)
 
+	pingTimer := time.NewTicker(5 * time.Second)
+	defer pingTimer.Stop()
+
 	for {
 		select {
 		case <-c.ctx.Done():
 			return
-		default:
-			// Try to establish and maintain connection
-			if err := c.establishConnection(client); err != nil {
-				if errors.Is(err, context.Canceled) {
-					return // Client is shutting down
+		case <-pingTimer.C:
+			if err := c.sendPing(); err != nil {
+				if errors.Is(err, ErrNotConnected) {
+					continue
 				}
-				// Handle other errors with backoff (already handled in establishConnection)
+				log.Printf("Failed to send ping: %v", err)
+				streamErrors.Inc()
+				c.triggerReconnect(err)
 			}
+		case <-c.reconnectCh:
+
+			c.stateMu.Lock()
+			c.stream = client.Stream(c.ctx)
+			c.registered = false
+			c.stateMu.Unlock()
+			log.Printf("Connection established")
 		}
 	}
 }
 
-// establishConnection attempts to connect to the coordinator with backoff on failure
-func (c *Client) establishConnection(client coordinatorconnect.CoordinatorServiceClient) error {
-	// Create stream and update client state
-	stream := client.Stream(c.ctx)
-
+// sendPing sends a ping message to the coordinator
+func (c *Client) sendPing() error {
 	c.stateMu.Lock()
-	c.stream = stream
-	c.registered = false
-	c.stateMu.Unlock()
-
-	// Attempt registration
-	if err := c.register(); err != nil {
-		log.Printf("Registration failed: %v", err)
-		return err
+	defer c.stateMu.Unlock()
+	if c.stream == nil || !c.registered {
+		return ErrNotConnected
+	}
+	nonce, err := generateNonce(16)
+	if err != nil {
+		return fmt.Errorf("failed to generate nonce: %w", err)
 	}
 
-	pingTimer := time.NewTicker(5 * time.Second)
-	defer pingTimer.Stop()
-
-	// Wait for reconnect signal or context cancellation
-	for {
-		select {
-		case <-pingTimer.C:
-			// Send ping to coordinator
-			c.stateMu.Lock()
-			if c.stream != nil {
-				// Generate nonce
-				nonce, err := generateNonce(16)
-				if err != nil {
-					return fmt.Errorf("failed to generate nonce: %w", err)
-				}
-
-				if err :=
-					c.stream.Send(&coordinatorv1.StreamRequest{
-						Nonce: nonce,
-						Request: &coordinatorv1.StreamRequest_Ping{
-							Ping: &coordinatorv1.PingRequest{},
-						},
-					}); err != nil {
-					log.Printf("Failed to send ping: %v", err)
-					streamErrors.Inc()
-				}
-			}
-			c.stateMu.Unlock()
-		case <-c.reconnectCh:
-			return nil
-		case <-c.ctx.Done():
-			return context.Canceled
-		}
-	}
+	return c.stream.Send(&coordinatorv1.StreamRequest{
+		Nonce: nonce,
+		Request: &coordinatorv1.StreamRequest_Ping{
+			Ping: &coordinatorv1.PingRequest{},
+		},
+	})
 }
 
 // calculateBackoff determines the next backoff period with jitter
@@ -285,74 +273,76 @@ func (c *Client) signRequest(req *coordinatorv1.StreamRequest, nonce []byte, wor
 
 // receiveMessages handles incoming messages from the coordinator
 func (c *Client) receiveMessages() {
-	baseBackoff := 1 * time.Second
-	maxBackoff := 60 * time.Second
 	for {
 		select {
 		case <-c.ctx.Done():
 			return
 		default:
-			if err := c.tryReceiveMessage(); err != nil {
-				if errors.Is(err, context.Canceled) {
-					return
+			// Get stream safely
+			c.stateMu.Lock()
+			stream := c.stream
+			c.stateMu.Unlock()
+
+			// Handle nil stream case
+			if stream == nil {
+				log.Printf("Stream is nil, waiting for connection...")
+				time.Sleep(reconnectWaitTime)
+				continue
+			}
+
+			if !c.registered {
+				log.Printf("Not registered, attempting to register...")
+				if err := c.register(); err != nil {
+					log.Printf("Failed to register: %v", err)
+					c.triggerReconnect(err)
+					continue
 				}
-				// Connection error, trigger reconnect
-				c.attempt++
-				time.Sleep(calculateBackoff(baseBackoff, c.attempt, maxBackoff)) // Avoid tight loop
-				c.triggerReconnect()
+			}
+
+			// Try to receive a message
+			resp, err := stream.Receive()
+			if err != nil {
+				log.Printf("Error receiving message: %v", err)
+				streamErrors.Inc()
+				c.triggerReconnect(err)
+				continue
+			}
+
+			// Reset attempt counter on successful receive
+			if c.attempt > 0 {
+				c.attempt = 0
+			}
+
+			// Process the response
+			switch {
+			case resp.GetTarget() != nil:
+				target := resp.GetTarget()
+				c.taskCh <- target
+				tasksAssigned.Inc()
+			case resp.GetPing() != nil:
+				// No need to do anything for pings
+			default:
+				log.Printf("Received unknown response type")
 			}
 		}
 	}
 }
 
-// tryReceiveMessage attempts to receive a single message from the coordinator
-func (c *Client) tryReceiveMessage() error {
-	c.stateMu.Lock()
-	stream := c.stream
-	c.stateMu.Unlock()
-
-	if stream == nil {
-		log.Printf("Stream is nil, waiting for connection...")
-		time.Sleep(1 * time.Second)
-		return nil
-	}
-
-	resp, err := stream.Receive()
-	if err != nil {
-		log.Printf("Error receiving message: %v", err)
-		streamErrors.Inc()
-		return err
-	}
-
-	if c.attempt > 0 {
-		c.attempt = 0
-	}
-
-	// Process the response
-	switch {
-	case resp.GetTarget() != nil:
-		target := resp.GetTarget()
-		c.taskCh <- target
-		tasksAssigned.Inc()
-	case resp.GetPing() != nil:
-		// No need to do anything for pings
-	default:
-		log.Printf("Received unknown response type")
-	}
-
-	return nil
-}
-
 // triggerReconnect signals that a reconnection is needed
-func (c *Client) triggerReconnect() {
+func (c *Client) triggerReconnect(err error) {
+	c.stateMu.Lock()
+	c.attempt++
+	c.stream = nil
 	c.registered = false
+	c.stateMu.Unlock()
+	log.Printf("Reconnection triggered: %v", err)
+	time.Sleep(calculateBackoff(baseBackoff, c.attempt, maxBackoff))
 	select {
 	case c.reconnectCh <- struct{}{}:
 		// Signal sent successfully
 	default:
 		// Channel is full (reconnection already triggered)
 	}
-	log.Printf("Reconnection requested, reconnecting...")
 }
 
 // worker processes tasks received from the coordinator
