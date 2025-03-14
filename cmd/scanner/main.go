@@ -19,16 +19,24 @@ import (
 )
 
 var (
-	coordURL = flag.String("coordinator", "https://coordinator.fn0rd.io", "URL of coordinator service")
-	workers  = flag.Uint("workers", uint(runtime.NumCPU()*4), "Number of worker goroutines")
-	logfile  = flag.String("logfile", "STDOUT", "Log file path")
-	statedir = flag.String("statedir", "/var/lib/fn0rd", "Directory to store state")
-	iface    = flag.String("iface", "", "Network interface to use for scanning")
-	metrics  = flag.String("metrics", "127.0.0.1:0", "Address to serve Prometheus metrics on")
+	coordURL    = flag.String("coordinator", "https://coordinator.fn0rd.io", "URL of coordinator service")
+	workers     = flag.Uint("workers", uint(runtime.NumCPU()*4), "Number of worker goroutines")
+	logfile     = flag.String("logfile", "STDOUT", "Log file path")
+	statedir    = flag.String("statedir", "/var/lib/fn0rd", "Directory to store state")
+	iface       = flag.String("iface", "", "Network interface to use for scanning")
+	metrics     = flag.String("metrics", "127.0.0.1:0", "Address to serve Prometheus metrics on")
+	showversion = flag.Bool("version", false, "Show version information")
+	version     = ""
+	commit      = ""
+	date        = ""
 )
 
 func init() {
 	flag.Parse()
+	if *showversion {
+		log.Printf("Scanner version %s, commit %s, built at %s", version, commit, date)
+		os.Exit(0)
+	}
 	setupLogging()
 	if *workers == 0 {
 		*workers = uint(runtime.NumCPU() * 4)

@@ -144,12 +144,11 @@ func (c *Client) sendPing() error {
 	}
 
 	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
 	if c.stream == nil || !c.registered {
-		c.stateMu.Unlock()
 		return ErrNotConnected
 	}
 	stream := c.stream
-	c.stateMu.Unlock()
 	return stream.Send(&coordinatorv1.StreamRequest{
 		Nonce: nonce,
 		Request: &coordinatorv1.StreamRequest_Ping{
@@ -213,12 +212,11 @@ func (c *Client) register() error {
 
 	// Send registration
 	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
 	if c.stream == nil {
-		c.stateMu.Unlock()
 		return ErrNotConnected
 	}
 	stream := c.stream
-	c.stateMu.Unlock()
 
 	if err := stream.Send(req); err != nil {
 		return fmt.Errorf("failed to send registration: %w", err)
@@ -284,6 +282,7 @@ func (c *Client) receiveMessages() {
 			// Get stream safely
 			c.stateMu.Lock()
 			stream := c.stream
+			reg := c.registered
 			c.stateMu.Unlock()
 
 			// Handle nil stream case
@@ -293,7 +292,7 @@ func (c *Client) receiveMessages() {
 				continue
 			}
 
-			if !c.registered {
+			if !reg {
 				log.Printf("Not registered, attempting to register...")
 				if err := c.register(); err != nil {
 					log.Printf("Failed to register: %v", err)
@@ -447,13 +446,12 @@ func (c *Client) submitResult(result Result) {
 	req.Signature = signature
 
 	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
 	if c.stream == nil || !c.registered {
-		c.stateMu.Unlock()
 		log.Printf("Cannot submit result: not connected")
 		return
 	}
 	stream := c.stream
-	c.stateMu.Unlock()
 
 	// Send result
 	if err := stream.Send(req); err != nil {
