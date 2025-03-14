@@ -45,13 +45,6 @@ func (c *Client) InitMetrics() {
 		return float64(len(c.taskCh))
 	})
 
-	promauto.NewGaugeFunc(prometheus.GaugeOpts{
-		Name: "scanner_result_queue_depth",
-		Help: "The current depth of the task queue",
-	}, func() float64 {
-		return float64(len(c.resultCh))
-	})
-
 	http.Handle("/metrics", promhttp.Handler())
 	go http.ListenAndServe(c.config.MetricsPort, nil)
 	log.Printf("Serving metrics on %s", c.config.MetricsPort)

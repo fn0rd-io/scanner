@@ -6,7 +6,6 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/binary"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -20,7 +19,8 @@ import (
 	"connectrpc.com/connect"
 	coordinatorv1 "github.com/fn0rd-io/protobuf/coordinator/v1"
 	"github.com/fn0rd-io/protobuf/coordinator/v1/coordinatorconnect"
-	"github.com/fn0rd-io/scanner/pkg/nmap"
+	"github.com/fn0rd-io/scanner/pkg/common"
+	_ "github.com/fn0rd-io/scanner/pkg/nmap"
 )
 
 const (
@@ -54,8 +54,7 @@ func NewClient(config Config) (*Client, error) {
 		config:      config,
 		ctx:         ctx,
 		cancel:      cancel,
-		taskCh:      make(chan *coordinatorv1.TargetResponse, config.Workers*2),
-		resultCh:    make(chan Result, config.Workers*2),
+		taskCh:      make(chan *coordinatorv1.TargetResponse),
 		reconnectCh: make(chan struct{}, 1), // Buffer of 1 to prevent blocking
 		stateMu:     sync.Mutex{},
 	}
@@ -76,7 +75,6 @@ func (c *Client) Start() error {
 	// Start goroutines for connection management and message handling
 	go c.connectionManager()
 	go c.receiveMessages()
-	go c.sendResults()
 
 	// Trigger initial connection
 	c.reconnectCh <- struct{}{}
@@ -128,7 +126,6 @@ func (c *Client) connectionManager() {
 				c.triggerReconnect(err)
 			}
 		case <-c.reconnectCh:
-
 			c.stateMu.Lock()
 			c.stream = client.Stream(c.ctx)
 			c.registered = false
@@ -140,17 +137,19 @@ func (c *Client) connectionManager() {
 
 // sendPing sends a ping message to the coordinator
 func (c *Client) sendPing() error {
-	c.stateMu.Lock()
-	defer c.stateMu.Unlock()
-	if c.stream == nil || !c.registered {
-		return ErrNotConnected
-	}
 	nonce, err := generateNonce(16)
 	if err != nil {
 		return fmt.Errorf("failed to generate nonce: %w", err)
 	}
 
-	return c.stream.Send(&coordinatorv1.StreamRequest{
+	c.stateMu.Lock()
+	if c.stream == nil || !c.registered {
+		c.stateMu.Unlock()
+		return ErrNotConnected
+	}
+	stream := c.stream
+	c.stateMu.Unlock()
+	return stream.Send(&coordinatorv1.StreamRequest{
 		Nonce: nonce,
 		Request: &coordinatorv1.StreamRequest_Ping{
 			Ping: &coordinatorv1.PingRequest{},
@@ -211,13 +210,14 @@ func (c *Client) register() error {
 
 	// Send registration
 	c.stateMu.Lock()
-	defer c.stateMu.Unlock()
-
 	if c.stream == nil {
+		c.stateMu.Unlock()
 		return ErrNotConnected
 	}
+	stream := c.stream
+	c.stateMu.Unlock()
 
-	if err := c.stream.Send(req); err != nil {
+	if err := stream.Send(req); err != nil {
 		return fmt.Errorf("failed to send registration: %w", err)
 	}
 
@@ -231,7 +231,7 @@ func (c *Client) determineCapabilities() []coordinatorv1.Capability {
 	capabilities := []coordinatorv1.Capability{}
 
 	// Check if Nmap scanner is available
-	n, err := nmap.NewNmapScanner(context.Background(), "127.0.0.1", "", true)
+	n, err := common.GetScanner("nmap").New(context.Background(), "127.0.0.1", "", true)
 	if err != nil {
 		log.Printf("Cannot create Nmap scanner: %v", err)
 	} else {
@@ -369,10 +369,10 @@ func (c *Client) processTask(id uint32, task *coordinatorv1.TargetResponse) {
 	// Calculate time remaining until deadline
 	if time.Until(deadline) < 0 {
 		log.Printf("Worker %d: task already expired, skipping", id)
-		c.resultCh <- Result{
+		c.submitResult(Result{
 			Target: target,
 			Error:  ErrTaskExpired,
-		}
+		})
 		return
 	}
 
@@ -382,23 +382,16 @@ func (c *Client) processTask(id uint32, task *coordinatorv1.TargetResponse) {
 
 	// Run the scan
 	result, err := c.runScan(ctx, id, target)
-	if err != nil {
-		c.resultCh <- Result{
-			Target: target,
-			Error:  err,
-		}
-		return
-	}
-
-	c.resultCh <- Result{
+	c.submitResult(Result{
 		Target: target,
 		Data:   result,
-	}
+		Error:  err,
+	})
 }
 
 // runScan executes an Nmap scan against the target
 func (c *Client) runScan(ctx context.Context, id uint32, target []byte) ([]byte, error) {
-	n, err := nmap.NewNmapScanner(ctx, net.IP(target).String(), c.config.Interface, c.config.UDP)
+	n, err := common.GetScanner("nmap").New(ctx, net.IP(target).String(), c.config.Interface, c.config.UDP)
 	if err != nil {
 		log.Printf("Worker %d: failed to create Nmap scanner: %v", id, err)
 		return nil, fmt.Errorf("scanner initialization failed: %w", err)
@@ -410,43 +403,14 @@ func (c *Client) runScan(ctx context.Context, id uint32, target []byte) ([]byte,
 		return nil, fmt.Errorf("scan failed: %w", err)
 	}
 
-	jres, err := json.Marshal(result)
-	if err != nil {
-		log.Printf("Worker %d: failed to marshal Nmap result: %v", id, err)
-		return nil, fmt.Errorf("result serialization failed: %w", err)
-	}
-
-	return jres, nil
-}
-
-// sendResults sends completed task results back to the coordinator
-func (c *Client) sendResults() {
-	for {
-		select {
-		case <-c.ctx.Done():
-			return
-		case result := <-c.resultCh:
-			if result.Error != nil {
-				log.Printf("Task error: %v", result.Error)
-				tasksFailed.Inc()
-			}
-
-			// Only send results that have data
-			if len(result.Data) > 0 {
-				c.submitResult(result)
-				tasksCompleted.Inc()
-			}
-		}
-	}
+	return result, nil
 }
 
 // submitResult sends a task result to the coordinator
 func (c *Client) submitResult(result Result) {
-	c.stateMu.Lock()
-	defer c.stateMu.Unlock()
-
-	if c.stream == nil || !c.registered {
-		log.Printf("Cannot submit result: not connected")
+	if result.Error != nil {
+		log.Printf("Task error: %v", result.Error)
+		tasksFailed.Inc()
 		return
 	}
 
@@ -479,9 +443,21 @@ func (c *Client) submitResult(result Result) {
 
 	req.Signature = signature
 
+	c.stateMu.Lock()
+	if c.stream == nil || !c.registered {
+		c.stateMu.Unlock()
+		log.Printf("Cannot submit result: not connected")
+		return
+	}
+	stream := c.stream
+	c.stateMu.Unlock()
+
 	// Send result
-	if err := c.stream.Send(req); err != nil {
+	if err := stream.Send(req); err != nil {
 		log.Printf("Failed to send result: %v", err)
 		streamErrors.Inc()
+		return
 	}
+
+	tasksCompleted.Inc()
 }

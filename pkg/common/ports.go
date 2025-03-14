@@ -1,9 +1,4 @@
-package nmap
-
-import (
-	"fmt"
-	"strings"
-)
+package common
 
 // Protocol type represents network protocol (TCP or UDP)
 type Protocol string
@@ -23,7 +18,7 @@ type NamedPort struct {
 }
 
 // CommonPorts defines standard ports and their associated services
-var CommonPorts = []NamedPort{
+var Ports = []NamedPort{
 	// Basic Internet Services
 	{20, "FTP-Data", TCP},
 	{21, "FTP-Control", TCP},
@@ -356,31 +351,4 @@ var CommonPorts = []NamedPort{
 	// Enterprise Applications
 	{3299, "SAP", TCP},       // SAP services
 	{9080, "WebSphere", TCP}, // IBM WebSphere Application Server
-}
-
-// portsToString converts a slice of NamedPort to a comma-separated string of port numbers
-// with protocol prefixes (t: for TCP, u: for UDP)
-func portsToString(ports []NamedPort, udp bool) string {
-	tcpPorts := make([]string, 0)
-	udpPorts := make([]string, 0)
-
-	for _, port := range ports {
-		if port.Protocol == TCP {
-			tcpPorts = append(tcpPorts, fmt.Sprintf("%d", port.Port))
-		} else if port.Protocol == UDP && udp {
-			udpPorts = append(udpPorts, fmt.Sprintf("%d", port.Port))
-		}
-	}
-
-	result := ""
-	if len(tcpPorts) > 0 {
-		result += "T:" + strings.Join(tcpPorts, ",")
-	}
-	if len(udpPorts) > 0 {
-		if result != "" {
-			result += ","
-		}
-		result += "U:" + strings.Join(udpPorts, ",")
-	}
-	return result
 }

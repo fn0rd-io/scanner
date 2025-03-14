@@ -46,7 +46,6 @@ type Client struct {
 	activeWorkers sync.WaitGroup
 	stateMu       sync.Mutex
 	taskCh        chan *coordinatorv1.TargetResponse
-	resultCh      chan Result
 	reconnectCh   chan struct{}
 	attempt       uint8
 }
