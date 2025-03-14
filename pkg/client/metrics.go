@@ -3,6 +3,7 @@ package client
 import (
 	"log"
 	"net/http"
+	"strings"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
@@ -36,6 +37,12 @@ func (c *Client) InitMetrics() {
 	if c.config.MetricsPort == "off" {
 		log.Println("Metrics disabled")
 		return
+	}
+
+	//check if MetricsPort contains a ":" and if not, prefix 127.0.0.1: to it
+	if !strings.Contains(c.config.MetricsPort, ":") {
+		c.config.MetricsPort = "127.0.0.1:" + c.config.MetricsPort
+		log.Printf("Changed MetricsPort to %s", c.config.MetricsPort)
 	}
 
 	promauto.NewGaugeFunc(prometheus.GaugeOpts{

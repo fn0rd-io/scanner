@@ -54,7 +54,7 @@ func NewClient(config Config) (*Client, error) {
 		config:      config,
 		ctx:         ctx,
 		cancel:      cancel,
-		taskCh:      make(chan *coordinatorv1.TargetResponse),
+		taskCh:      make(chan *coordinatorv1.TargetResponse, config.Workers),
 		reconnectCh: make(chan struct{}, 1), // Buffer of 1 to prevent blocking
 		stateMu:     sync.Mutex{},
 	}
