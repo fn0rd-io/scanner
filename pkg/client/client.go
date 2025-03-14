@@ -21,6 +21,7 @@ import (
 	"github.com/fn0rd-io/protobuf/coordinator/v1/coordinatorconnect"
 	"github.com/fn0rd-io/scanner/pkg/common"
 	_ "github.com/fn0rd-io/scanner/pkg/nmap"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 const (
@@ -152,7 +153,9 @@ func (c *Client) sendPing() error {
 	return stream.Send(&coordinatorv1.StreamRequest{
 		Nonce: nonce,
 		Request: &coordinatorv1.StreamRequest_Ping{
-			Ping: &coordinatorv1.PingRequest{},
+			Ping: &coordinatorv1.PingRequest{
+				Timestamp: timestamppb.Now(),
+			},
 		},
 	})
 }
