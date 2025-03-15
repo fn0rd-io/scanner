@@ -413,13 +413,13 @@ func (c *Client) submitResult(result Result) {
 	if result.Error != nil {
 		log.Printf("Task error: %v", result.Error)
 		tasksFailed.Inc()
-		return
 	}
 
 	// Generate nonce
 	nonce, err := generateNonce(16)
 	if err != nil {
 		log.Printf("Failed to generate nonce: %v", err)
+		c.triggerReconnect(err)
 		return
 	}
 
@@ -440,6 +440,7 @@ func (c *Client) submitResult(result Result) {
 	signature, err := c.config.PrivateKey.Sign(rand.Reader, dataToSign, crypto.Hash(0))
 	if err != nil {
 		log.Printf("Failed to sign request: %v", err)
+		c.triggerReconnect(err)
 		return
 	}
 
@@ -457,6 +458,7 @@ func (c *Client) submitResult(result Result) {
 	if err := stream.Send(req); err != nil {
 		log.Printf("Failed to send result: %v", err)
 		streamErrors.Inc()
+		c.triggerReconnect(err)
 		return
 	}
 
