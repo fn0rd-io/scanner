@@ -125,8 +125,14 @@ func (c *Client) startWorkers() {
 func (c *Client) connectionManager() {
 	slog.Info(fmt.Sprintf("Connection manager started for coordinator at %s", c.config.CoordinatorURL))
 
+	transport := http.DefaultTransport
+	transport.(*http.Transport).DialContext = (&net.Dialer{
+		Timeout:   c.config.ConnectTimeout,
+		KeepAlive: 30 * time.Second,
+		DualStack: true,
+	}).DialContext
 	httpClient := http.DefaultClient
-	httpClient.Timeout = c.config.ConnectTimeout
+	httpClient.Transport = transport
 
 	// Create connect client with custom HTTP client
 	client := coordinatorconnect.NewCoordinatorServiceClient(
