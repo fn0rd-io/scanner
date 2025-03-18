@@ -25,6 +25,7 @@ type Config struct {
 	Interface   string
 	UDP         bool
 	MetricsPort string
+	Debug       bool
 }
 
 // DefaultConfig returns a configuration with sensible defaults
@@ -44,7 +45,7 @@ type Client struct {
 	stream        *connect.BidiStreamForClient[coordinatorv1.StreamRequest, coordinatorv1.StreamResponse]
 	registered    bool
 	activeWorkers sync.WaitGroup
-	stateMu       sync.Mutex
+	stateMu       sync.RWMutex
 	taskCh        chan *coordinatorv1.TargetResponse
 	reconnectCh   chan struct{}
 	attempt       uint8

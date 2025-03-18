@@ -1,7 +1,8 @@
 package client
 
 import (
-	"log"
+	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -35,14 +36,14 @@ var (
 
 func (c *Client) InitMetrics() {
 	if c.config.MetricsPort == "off" {
-		log.Println("Metrics disabled")
+		slog.Info("Metrics disabled")
 		return
 	}
 
 	//check if MetricsPort contains a ":" and if not, prefix 127.0.0.1: to it
 	if !strings.Contains(c.config.MetricsPort, ":") {
 		c.config.MetricsPort = "127.0.0.1:" + c.config.MetricsPort
-		log.Printf("Changed MetricsPort to %s", c.config.MetricsPort)
+		slog.Warn(fmt.Sprintf("Changed MetricsPort to %s", c.config.MetricsPort))
 	}
 
 	promauto.NewGaugeFunc(prometheus.GaugeOpts{
@@ -54,5 +55,5 @@ func (c *Client) InitMetrics() {
 
 	http.Handle("/metrics", promhttp.Handler())
 	go http.ListenAndServe(c.config.MetricsPort, nil)
-	log.Printf("Serving metrics on %s", c.config.MetricsPort)
+	slog.Info(fmt.Sprintf("Serving metrics on %s", c.config.MetricsPort))
 }

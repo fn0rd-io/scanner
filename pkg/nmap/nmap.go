@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"strings"
 
 	"github.com/Ullaakut/nmap/v3"
@@ -60,6 +60,7 @@ func (ns *NmapScanner) New(ctx context.Context, targets string, iface string, ud
 		nmap.WithSystemDNS(),
 		nmap.WithPorts(portsToString(common.Ports, udp)),
 		nmap.WithScripts("vulners", "banner"),
+		nmap.WithMaxRetries(1),
 	)
 	if iface != "" {
 		opts = append(opts, nmap.WithInterface(iface))
@@ -95,13 +96,13 @@ func (ns *NmapScanner) Capabilities() []common.Protocol {
 	capabilities := make([]common.Protocol, 0)
 	n, err := ns.New(context.Background(), "127.0.0.1", "", true)
 	if err != nil {
-		log.Printf("Cannot create Nmap scanner: %v", err)
+		slog.Error(fmt.Sprintf("Cannot create Nmap scanner: %v", err))
 	} else {
 		capabilities = append(capabilities, common.TCP)
 		if _, err := n.Run(); err == nil {
 			capabilities = append(capabilities, common.UDP)
 		} else {
-			log.Printf("Limiting Capabilities to TCP-Only: %v", err)
+			slog.Warn(fmt.Sprintf("Limiting Capabilities to TCP-Only: %v", err))
 		}
 	}
 	return capabilities
