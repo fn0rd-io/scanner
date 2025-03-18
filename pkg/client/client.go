@@ -26,8 +26,8 @@ import (
 
 const (
 	baseBackoff       = 1 * time.Second
-	maxBackoff        = 60 * time.Second
-	reconnectWaitTime = 1 * time.Second
+	maxBackoff        = 5 * time.Minute
+	reconnectWaitTime = 50 * time.Millisecond
 )
 
 // Error constants
@@ -59,6 +59,9 @@ func NewClient(config Config) (*Client, error) {
 		reconnectCh: make(chan struct{}, 1), // Buffer of 1 to prevent blocking
 		stateMu:     sync.RWMutex{},
 	}
+
+	// Determine capabilities
+	client.capabilities = client.determineCapabilities()
 
 	totalWorkers.Set(float64(config.Workers))
 
@@ -122,9 +125,12 @@ func (c *Client) startWorkers() {
 func (c *Client) connectionManager() {
 	slog.Info(fmt.Sprintf("Connection manager started for coordinator at %s", c.config.CoordinatorURL))
 
-	// Create connect client
+	httpClient := http.DefaultClient
+	httpClient.Timeout = c.config.ConnectTimeout
+
+	// Create connect client with custom HTTP client
 	client := coordinatorconnect.NewCoordinatorServiceClient(
-		http.DefaultClient,
+		httpClient,
 		c.config.CoordinatorURL,
 		connect.WithGRPC(),
 	)
@@ -209,9 +215,6 @@ func (c *Client) register() error {
 		return fmt.Errorf("failed to generate nonce: %w", err)
 	}
 
-	// Determine capabilities
-	capabilities := c.determineCapabilities()
-
 	// Create registration request
 	req := &coordinatorv1.StreamRequest{
 		Nonce: nonce,
@@ -219,7 +222,7 @@ func (c *Client) register() error {
 			Register: &coordinatorv1.RegisterRequest{
 				PublicKey:    pubKeyBytes,
 				Workers:      c.config.Workers,
-				Capabilities: capabilities,
+				Capabilities: c.capabilities,
 			},
 		},
 	}
@@ -251,6 +254,8 @@ func (c *Client) register() error {
 // determineCapabilities checks what capabilities this scanner supports
 func (c *Client) determineCapabilities() []coordinatorv1.Capability {
 	capabilities := []coordinatorv1.Capability{}
+
+	slog.Info("Determining scanner capabilities...")
 
 	// Check if Nmap scanner is available
 	n, err := common.GetScanner("nmap").New(context.Background(), "127.0.0.1", "", true)
@@ -389,6 +394,8 @@ func (c *Client) worker(id uint32) {
 func (c *Client) processTask(id uint32, task *coordinatorv1.TargetResponse) {
 	target := task.Target
 	deadline := task.Deadline.AsTime()
+
+	slog.Debug(fmt.Sprintf("Worker %d: processing task for %#v", id, target))
 
 	// Calculate time remaining until deadline
 	if time.Until(deadline) < 0 {

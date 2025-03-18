@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"crypto/ed25519"
+	"runtime"
 	"sync"
 	"time"
 
@@ -32,8 +33,8 @@ type Config struct {
 func DefaultConfig() Config {
 	return Config{
 		CoordinatorURL: "http://127.0.0.1:8080",
-		Workers:        4,
-		ConnectTimeout: 10 * time.Second,
+		Workers:        uint32(runtime.NumCPU()),
+		ConnectTimeout: 3 * time.Second,
 	}
 }
 
@@ -49,6 +50,7 @@ type Client struct {
 	taskCh        chan *coordinatorv1.TargetResponse
 	reconnectCh   chan struct{}
 	attempt       uint8
+	capabilities  []coordinatorv1.Capability
 }
 
 // Result holds the outcome of a task processing attempt
