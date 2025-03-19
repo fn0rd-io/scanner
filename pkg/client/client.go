@@ -93,7 +93,9 @@ func (c *Client) Start() error {
 					if try {
 						c.stateMu.Unlock()
 					}
-					slog.Debug(fmt.Sprintf("TryLock: %v", try))
+					c.stateMu.RLock()
+					slog.Debug(fmt.Sprintf("TryLock: %v / Registration: %#v", try, c.registered))
+					c.stateMu.RUnlock()
 				}
 			}
 		}()
@@ -177,9 +179,10 @@ func (c *Client) sendPing() error {
 
 	c.stateMu.RLock()
 	defer c.stateMu.RUnlock()
-	if c.stream == nil || !c.registered {
+	if c.stream == nil || c.registered != registrationSuccess {
 		return ErrNotConnected
 	}
+	slog.Debug("Sending ping")
 	return c.stream.Send(&coordinatorv1.StreamRequest{
 		Nonce: nonce,
 		Request: &coordinatorv1.StreamRequest_Ping{
@@ -252,8 +255,8 @@ func (c *Client) register() error {
 		return fmt.Errorf("failed to send registration: %w", err)
 	}
 
-	slog.Debug(fmt.Sprintf("Registration with %d workers sent successfully", c.config.Workers))
-	c.registered = true
+	slog.Debug(fmt.Sprintf("Registration with %d workers sent", c.config.Workers))
+	c.registered = registrationSent
 	return nil
 }
 
@@ -322,7 +325,7 @@ func (c *Client) receiveMessages() {
 				continue
 			}
 
-			if !c.registered {
+			if c.registered < registrationSent {
 				slog.Debug("Not registered, attempting to register...")
 				c.stateMu.RUnlock()
 				if err := c.register(); err != nil {
@@ -351,6 +354,13 @@ func (c *Client) receiveMessages() {
 				target := resp.GetTarget()
 				c.taskCh <- target
 				tasksAssigned.Inc()
+				if c.registered != registrationSuccess {
+					c.stateMu.RUnlock()
+					c.stateMu.Lock()
+					c.registered = registrationSuccess
+					c.stateMu.Unlock()
+					continue
+				}
 			case resp.GetPing() != nil:
 				// No need to do anything for pings
 			default:
@@ -370,7 +380,7 @@ func (c *Client) triggerReconnect(err error) {
 	defer c.stateMu.Unlock()
 	c.attempt++
 	c.stream = nil
-	c.registered = false
+	c.registered = registrationPending
 	time.Sleep(calculateBackoff(baseBackoff, c.attempt, maxBackoff))
 	select {
 	case c.reconnectCh <- struct{}{}:
@@ -480,18 +490,20 @@ func (c *Client) submitResult(result Result) {
 	req.Signature = signature
 
 	c.stateMu.RLock()
-	defer c.stateMu.RUnlock()
-	if c.stream == nil || !c.registered {
-		slog.Info("Cannot submit result: not connected")
+	if c.stream == nil || c.registered != registrationSuccess {
+		c.stateMu.RUnlock()
+		slog.Debug("Cannot submit result: not connected")
 		return
 	}
 
 	// Send result
 	if err := c.stream.Send(req); err != nil {
+		c.stateMu.RUnlock()
 		streamErrors.Inc()
 		c.triggerReconnect(err)
 		return
 	}
 
+	c.stateMu.RUnlock()
 	tasksCompleted.Inc()
 }

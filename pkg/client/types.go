@@ -44,7 +44,7 @@ type Client struct {
 	ctx           context.Context
 	cancel        context.CancelFunc
 	stream        *connect.BidiStreamForClient[coordinatorv1.StreamRequest, coordinatorv1.StreamResponse]
-	registered    bool
+	registered    registrationState
 	activeWorkers sync.WaitGroup
 	stateMu       sync.RWMutex
 	taskCh        chan *coordinatorv1.TargetResponse
@@ -59,3 +59,11 @@ type Result struct {
 	Data   []byte
 	Error  error
 }
+
+type registrationState uint
+
+const (
+	registrationPending registrationState = iota
+	registrationSent
+	registrationSuccess
+)
