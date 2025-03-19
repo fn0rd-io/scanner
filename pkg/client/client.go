@@ -56,6 +56,7 @@ func NewClient(config Config) (*Client, error) {
 		cancel:      cancel,
 		taskCh:      make(chan *coordinatorv1.TargetResponse, config.Workers),
 		reconnectCh: make(chan struct{}, 1), // Buffer of 1 to prevent blocking
+		send:        make(chan *coordinatorv1.StreamRequest),
 	}
 
 	// Determine capabilities
@@ -74,6 +75,7 @@ func (c *Client) Start() error {
 
 	go c.connectionManager()
 	go c.receiveMessages()
+	go c.sendMessages()
 
 	// Trigger initial connection
 	c.reconnectCh <- struct{}{}
@@ -162,16 +164,15 @@ func (c *Client) sendPing() error {
 	}
 
 	c.stateMu.RLock()
-	stream := c.stream
 	registered := c.registered
 	c.stateMu.RUnlock()
 
-	if stream == nil || registered != registrationSuccess {
+	if registered != registrationSuccess {
 		return ErrNotConnected
 	}
 
-	slog.Debug("Sending ping")
-	return stream.Send(pingReq)
+	c.send <- pingReq
+	return nil
 }
 
 // calculateBackoff determines the next backoff period with jitter
@@ -216,23 +217,12 @@ func (c *Client) register() error {
 		return err
 	}
 
-	c.stateMu.RLock()
-	stream := c.stream
-	c.stateMu.RUnlock()
-
-	if stream == nil {
-		return ErrNotConnected
-	}
-
-	if err := stream.Send(req); err != nil {
-		return fmt.Errorf("failed to send registration: %w", err)
-	}
+	c.send <- req
 
 	c.stateMu.Lock()
 	c.registered = registrationSent
 	c.stateMu.Unlock()
 
-	slog.Debug(fmt.Sprintf("Registration with %d workers sent", c.config.Workers))
 	return nil
 }
 
@@ -448,20 +438,41 @@ func (c *Client) submitResult(result Result) {
 	req.Signature = signature
 
 	c.stateMu.RLock()
-	stream := c.stream
 	registered := c.registered
 	c.stateMu.RUnlock()
 
-	if stream == nil || registered != registrationSuccess {
+	if registered != registrationSuccess {
 		slog.Debug("Cannot submit result: not connected")
 		return
 	}
 
-	if err = stream.Send(req); err != nil {
-		streamErrors.Inc()
-		c.triggerReconnect(err)
-		return
-	}
+	c.send <- req
 
 	tasksCompleted.Inc()
+}
+
+// sendMessages sends messages to the coordinator
+func (c *Client) sendMessages() {
+	for {
+		select {
+		case <-c.ctx.Done():
+			return
+		case req := <-c.send:
+			slog.Debug(fmt.Sprintf("Sending message: %T", req.Request))
+
+			c.stateMu.RLock()
+			stream := c.stream
+			c.stateMu.RUnlock()
+
+			if stream == nil {
+				slog.Debug("Discarding message: no active stream")
+				continue
+			}
+
+			if err := stream.Send(req); err != nil {
+				streamErrors.Inc()
+				c.triggerReconnect(err)
+			}
+		}
+	}
 }

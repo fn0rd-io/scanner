@@ -51,6 +51,7 @@ type Client struct {
 	reconnectCh   chan struct{}
 	attempt       uint8
 	capabilities  []coordinatorv1.Capability
+	send          chan *coordinatorv1.StreamRequest
 }
 
 // Result holds the outcome of a task processing attempt
