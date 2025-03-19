@@ -13,7 +13,6 @@ import (
 	mrand "math/rand"
 	"net"
 	"net/http"
-	"sync"
 	"time"
 
 	"connectrpc.com/connect"
@@ -57,7 +56,6 @@ func NewClient(config Config) (*Client, error) {
 		cancel:      cancel,
 		taskCh:      make(chan *coordinatorv1.TargetResponse, config.Workers),
 		reconnectCh: make(chan struct{}, 1), // Buffer of 1 to prevent blocking
-		stateMu:     sync.RWMutex{},
 	}
 
 	// Determine capabilities
@@ -72,34 +70,10 @@ func NewClient(config Config) (*Client, error) {
 // and starting worker goroutines
 func (c *Client) Start() error {
 	c.InitMetrics()
-
-	// Start the workers
 	c.startWorkers()
 
-	// Start goroutines for connection management and message handling
 	go c.connectionManager()
 	go c.receiveMessages()
-
-	if c.config.Debug {
-		go func() {
-			ticker := time.NewTicker(5 * time.Second)
-			defer ticker.Stop()
-			for {
-				select {
-				case <-c.ctx.Done():
-					return
-				case <-ticker.C:
-					try := c.stateMu.TryLock()
-					if try {
-						c.stateMu.Unlock()
-					}
-					c.stateMu.RLock()
-					slog.Debug(fmt.Sprintf("TryLock: %v / Registration: %#v", try, c.registered))
-					c.stateMu.RUnlock()
-				}
-			}
-		}()
-	}
 
 	// Trigger initial connection
 	c.reconnectCh <- struct{}{}
@@ -136,7 +110,6 @@ func (c *Client) connectionManager() {
 	httpClient := http.DefaultClient
 	httpClient.Transport = transport
 
-	// Create connect client with custom HTTP client
 	client := coordinatorconnect.NewCoordinatorServiceClient(
 		httpClient,
 		c.config.CoordinatorURL,
@@ -160,11 +133,13 @@ func (c *Client) connectionManager() {
 			}
 		case <-c.reconnectCh:
 			slog.Debug("Attempting to connect to coordinator...")
-			slog.Debug("Getting Lock")
+
+			stream := client.Stream(c.ctx)
+
 			c.stateMu.Lock()
-			slog.Debug("Got Lock")
-			c.stream = client.Stream(c.ctx)
+			c.stream = stream
 			c.stateMu.Unlock()
+
 			slog.Debug("Connection established")
 		}
 	}
@@ -177,20 +152,26 @@ func (c *Client) sendPing() error {
 		return fmt.Errorf("failed to generate nonce: %w", err)
 	}
 
-	c.stateMu.RLock()
-	defer c.stateMu.RUnlock()
-	if c.stream == nil || c.registered != registrationSuccess {
-		return ErrNotConnected
-	}
-	slog.Debug("Sending ping")
-	return c.stream.Send(&coordinatorv1.StreamRequest{
+	pingReq := &coordinatorv1.StreamRequest{
 		Nonce: nonce,
 		Request: &coordinatorv1.StreamRequest_Ping{
 			Ping: &coordinatorv1.PingRequest{
 				Timestamp: timestamppb.Now(),
 			},
 		},
-	})
+	}
+
+	c.stateMu.RLock()
+	stream := c.stream
+	registered := c.registered
+	c.stateMu.RUnlock()
+
+	if stream == nil || registered != registrationSuccess {
+		return ErrNotConnected
+	}
+
+	slog.Debug("Sending ping")
+	return stream.Send(pingReq)
 }
 
 // calculateBackoff determines the next backoff period with jitter
@@ -200,7 +181,6 @@ func calculateBackoff(base time.Duration, attempt uint8, max time.Duration) time
 		backoff = max
 	}
 
-	// Add jitter (±20%)
 	jitter := time.Duration(mrand.Float64()*0.4*float64(backoff) - 0.2*float64(backoff))
 
 	slog.Debug(fmt.Sprintf("Calculated backoff: %v + %v", backoff, jitter))
@@ -209,22 +189,18 @@ func calculateBackoff(base time.Duration, attempt uint8, max time.Duration) time
 
 // register sends registration information to the coordinator
 func (c *Client) register() error {
-	// Extract public key from private key
 	ed25519PubKey, ok := c.config.PrivateKey.Public().(ed25519.PublicKey)
 	if !ok {
 		return ErrInvalidPublicKey
 	}
 
-	// Use the raw bytes directly - this will be exactly 32 bytes
 	pubKeyBytes := []byte(ed25519PubKey)
 
-	// Generate nonce
 	nonce, err := generateNonce(16)
 	if err != nil {
 		return fmt.Errorf("failed to generate nonce: %w", err)
 	}
 
-	// Create registration request
 	req := &coordinatorv1.StreamRequest{
 		Nonce: nonce,
 		Request: &coordinatorv1.StreamRequest_Register{
@@ -236,27 +212,27 @@ func (c *Client) register() error {
 		},
 	}
 
-	// Sign the request
 	if err := c.signRequest(req, nonce, c.config.Workers); err != nil {
 		return err
 	}
 
-	// Send registration
-	slog.Debug("Getting Lock")
-	c.stateMu.Lock()
-	slog.Debug("Got Lock")
-	defer c.stateMu.Unlock()
-	if c.stream == nil {
+	c.stateMu.RLock()
+	stream := c.stream
+	c.stateMu.RUnlock()
+
+	if stream == nil {
 		return ErrNotConnected
 	}
-	stream := c.stream
 
 	if err := stream.Send(req); err != nil {
 		return fmt.Errorf("failed to send registration: %w", err)
 	}
 
-	slog.Debug(fmt.Sprintf("Registration with %d workers sent", c.config.Workers))
+	c.stateMu.Lock()
 	c.registered = registrationSent
+	c.stateMu.Unlock()
+
+	slog.Debug(fmt.Sprintf("Registration with %d workers sent", c.config.Workers))
 	return nil
 }
 
@@ -266,7 +242,6 @@ func (c *Client) determineCapabilities() []coordinatorv1.Capability {
 
 	slog.Info("Determining scanner capabilities...")
 
-	// Check if Nmap scanner is available
 	n, err := common.GetScanner("nmap").New(context.Background(), "127.0.0.1", "", true)
 	if err != nil {
 		slog.Info(fmt.Sprintf("Cannot create Nmap scanner: %v", err))
@@ -292,12 +267,10 @@ func generateNonce(size int) ([]byte, error) {
 
 // signRequest signs a request with the client's private key
 func (c *Client) signRequest(req *coordinatorv1.StreamRequest, nonce []byte, workerCount uint32) error {
-	// Prepare data to sign: nonce + worker count as bytes
 	workerBytes := make([]byte, 4)
 	binary.LittleEndian.PutUint32(workerBytes, workerCount)
 	dataToSign := append(nonce, workerBytes...)
 
-	// Sign the raw message (Ed25519 does its own hashing internally)
 	signature, err := c.config.PrivateKey.Sign(rand.Reader, dataToSign, crypto.Hash(0))
 	if err != nil {
 		return fmt.Errorf("failed to sign request: %w", err)
@@ -314,59 +287,50 @@ func (c *Client) receiveMessages() {
 		case <-c.ctx.Done():
 			return
 		default:
-			// Get stream safely
 			c.stateMu.RLock()
+			stream := c.stream
+			regState := c.registered
+			c.stateMu.RUnlock()
 
-			// Handle nil stream case
-			if c.stream == nil {
-				c.stateMu.RUnlock()
+			if stream == nil {
 				slog.Debug("Stream is nil, waiting for connection...")
 				time.Sleep(reconnectWaitTime)
 				continue
 			}
 
-			if c.registered < registrationSent {
+			if regState < registrationSent {
 				slog.Debug("Not registered, attempting to register...")
-				c.stateMu.RUnlock()
 				if err := c.register(); err != nil {
 					c.triggerReconnect(err)
 				}
 				continue
 			}
 
-			// Try to receive a message
-			resp, err := c.stream.Receive()
+			resp, err := stream.Receive()
 			if err != nil {
-				c.stateMu.RUnlock()
 				streamErrors.Inc()
 				c.triggerReconnect(err)
 				continue
 			}
 
-			// Reset attempt counter on successful receive
-			if c.attempt > 0 {
-				c.attempt = 0
-			}
-
-			// Process the response
 			switch {
 			case resp.GetTarget() != nil:
 				target := resp.GetTarget()
 				c.taskCh <- target
 				tasksAssigned.Inc()
+
+				c.stateMu.Lock()
 				if c.registered != registrationSuccess {
-					c.stateMu.RUnlock()
-					c.stateMu.Lock()
 					c.registered = registrationSuccess
-					c.stateMu.Unlock()
-					continue
+					c.attempt = 0
+					slog.Debug("Registration successful")
 				}
+				c.stateMu.Unlock()
 			case resp.GetPing() != nil:
 				// No need to do anything for pings
 			default:
 				slog.Warn("Received unknown response type")
 			}
-			c.stateMu.RUnlock()
 		}
 	}
 }
@@ -374,19 +338,20 @@ func (c *Client) receiveMessages() {
 // triggerReconnect signals that a reconnection is needed
 func (c *Client) triggerReconnect(err error) {
 	slog.Info(fmt.Sprintf("Reconnection triggered: %v", err))
-	slog.Debug("Getting Lock")
+
+	var attemptVal uint8
 	c.stateMu.Lock()
-	slog.Debug("Got Lock")
-	defer c.stateMu.Unlock()
 	c.attempt++
+	attemptVal = c.attempt
 	c.stream = nil
 	c.registered = registrationPending
-	time.Sleep(calculateBackoff(baseBackoff, c.attempt, maxBackoff))
+	c.stateMu.Unlock()
+
+	time.Sleep(calculateBackoff(baseBackoff, attemptVal, maxBackoff))
+
 	select {
 	case c.reconnectCh <- struct{}{}:
-		// Signal sent successfully
 	default:
-		// Channel is full (reconnection already triggered)
 	}
 }
 
@@ -413,7 +378,6 @@ func (c *Client) processTask(id uint32, task *coordinatorv1.TargetResponse) {
 
 	slog.Debug(fmt.Sprintf("Worker %d: processing task for %#v", id, target))
 
-	// Calculate time remaining until deadline
 	if time.Until(deadline) < 0 {
 		slog.Info(fmt.Sprintf("Worker %d: task already expired, skipping", id))
 		c.submitResult(Result{
@@ -423,11 +387,9 @@ func (c *Client) processTask(id uint32, task *coordinatorv1.TargetResponse) {
 		return
 	}
 
-	// Create context with deadline
 	ctx, cancel := context.WithDeadline(c.ctx, deadline)
 	defer cancel()
 
-	// Run the scan
 	result, err := c.runScan(ctx, id, target)
 	c.submitResult(Result{
 		Target: target,
@@ -440,34 +402,33 @@ func (c *Client) processTask(id uint32, task *coordinatorv1.TargetResponse) {
 func (c *Client) runScan(ctx context.Context, id uint32, target []byte) ([]byte, error) {
 	n, err := common.GetScanner("nmap").New(ctx, net.IP(target).String(), c.config.Interface, c.config.UDP)
 	if err != nil {
-		slog.Info(fmt.Sprintf("Worker %d: failed to create Nmap scanner: %v", id, err))
+		slog.Debug(fmt.Sprintf("Worker %d: failed to create Nmap scanner: %v", id, err))
 		return nil, fmt.Errorf("scanner initialization failed: %w", err)
 	}
 
 	result, err := n.Run()
 	if err != nil {
-		slog.Info(fmt.Sprintf("Worker %d: task failed: %v", id, err))
+		slog.Debug(fmt.Sprintf("Worker %d: task failed: %v", id, err))
 		return nil, fmt.Errorf("scan failed: %w", err)
 	}
 
+	slog.Debug(fmt.Sprintf("Worker %d: task completed", id))
 	return result, nil
 }
 
 // submitResult sends a task result to the coordinator
 func (c *Client) submitResult(result Result) {
 	if result.Error != nil {
-		slog.Info(fmt.Sprintf("Task error: %v", result.Error))
+		slog.Debug(fmt.Sprintf("Task error: %v", result.Error))
 		tasksFailed.Inc()
 	}
 
-	// Generate nonce
 	nonce, err := generateNonce(16)
 	if err != nil {
 		c.triggerReconnect(err)
 		return
 	}
 
-	// Create submit request
 	req := &coordinatorv1.StreamRequest{
 		Nonce: nonce,
 		Request: &coordinatorv1.StreamRequest_Submit{
@@ -477,33 +438,30 @@ func (c *Client) submitResult(result Result) {
 		},
 	}
 
-	// Prepare data to sign: nonce + result data
 	dataToSign := append(nonce, result.Data...)
 
-	// Sign the raw message (Ed25519 does its own hashing internally)
 	signature, err := c.config.PrivateKey.Sign(rand.Reader, dataToSign, crypto.Hash(0))
 	if err != nil {
 		c.triggerReconnect(err)
 		return
 	}
-
 	req.Signature = signature
 
 	c.stateMu.RLock()
-	if c.stream == nil || c.registered != registrationSuccess {
-		c.stateMu.RUnlock()
+	stream := c.stream
+	registered := c.registered
+	c.stateMu.RUnlock()
+
+	if stream == nil || registered != registrationSuccess {
 		slog.Debug("Cannot submit result: not connected")
 		return
 	}
 
-	// Send result
-	if err := c.stream.Send(req); err != nil {
-		c.stateMu.RUnlock()
+	if err = stream.Send(req); err != nil {
 		streamErrors.Inc()
 		c.triggerReconnect(err)
 		return
 	}
 
-	c.stateMu.RUnlock()
 	tasksCompleted.Inc()
 }
